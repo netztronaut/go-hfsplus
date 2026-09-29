@@ -14,8 +14,10 @@ PowerPC Mac OS X install, or of a pre-APFS Intel one, from the host.
   header, the blessed folders, the journal, extended attributes and resource forks.
 - `lzvn` and `lzfse` decode the compression `decmpfs` uses; `hfsplus` reads compressed files
   transparently.
-- `diskfs/` is a separate module adapting both to go-diskfs's `partition.Table` and
-  `filesystem.FileSystem`, so the readers themselves depend on nothing but the standard library.
+- `diskfs/` is a separate module, `netztronaut.de/go-hfsplus/diskfs`, adapting both to
+  go-diskfs's `partition.Table` and `filesystem.FileSystem`, so the readers themselves depend on
+  nothing but the standard library. It requires a tagged release of the readers; to work on both
+  at once, `go work init . ./diskfs` (go.work is not checked in).
 
 Nothing here writes. There is no write method, not even one that fails; the go-diskfs adapter's
 write methods, which its interfaces require, return `filesystem.ErrReadonlyFilesystem`. A journal
