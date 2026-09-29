@@ -57,6 +57,15 @@ func HFSTime(t uint32) time.Time {
 	return time.Unix(int64(t)+hfsEpoch, 0).UTC()
 }
 
+// BSDTime converts an HFS+ date as macOS presents it to stat(2): a date before 1970, 0 included,
+// is 1970-01-01 00:00:00 UTC, as the kernel's to_bsd_time clamps it.
+func BSDTime(t uint32) time.Time {
+	if int64(t) < -hfsEpoch {
+		return time.Unix(0, 0).UTC()
+	}
+	return HFSTime(t)
+}
+
 // Extent is an HFSPlusExtentDescriptor: a run of allocation blocks.
 type Extent struct {
 	StartBlock uint32
@@ -247,6 +256,8 @@ type Record struct {
 	// Link is set when the record was reached through a hard link: it is the link's own
 	// record, while the receiver describes the target it resolves to.
 	Link *Record
+
+	rawDates bool // Options.RawDates of the volume that read the record
 }
 
 // Type returns a file's Finder type code, such as 'TEXT', 'slnk' or 'hlnk'.
@@ -268,13 +279,22 @@ func (r *Record) Creator() uint32 {
 // FinderFlags returns the Finder flags word of FileInfo or FolderInfo.
 func (r *Record) FinderFlags() uint16 { return be16(r.UserInfo[8:]) }
 
-// Created, Modified, Changed and Accessed return the record's dates. Changed is the attribute
-// modification date, the ctime macOS reports.
-func (r *Record) Created() time.Time  { return HFSTime(r.CreateDate) }
-func (r *Record) Modified() time.Time { return HFSTime(r.ContentModDate) }
-func (r *Record) Changed() time.Time  { return HFSTime(r.AttributeModDate) }
-func (r *Record) Accessed() time.Time { return HFSTime(r.AccessDate) }
-func (r *Record) Backup() time.Time   { return HFSTime(r.BackupDate) }
+// Created, Modified, Changed, Accessed and Backup return the record's dates as macOS presents
+// them (BSDTime): one before 1970 is 1970, unless the volume was opened with Options.RawDates,
+// when they are converted as stored (HFSTime). Changed is the attribute modification date, the
+// ctime macOS reports. The fields hold the dates as stored.
+func (r *Record) Created() time.Time  { return r.date(r.CreateDate) }
+func (r *Record) Modified() time.Time { return r.date(r.ContentModDate) }
+func (r *Record) Changed() time.Time  { return r.date(r.AttributeModDate) }
+func (r *Record) Accessed() time.Time { return r.date(r.AccessDate) }
+func (r *Record) Backup() time.Time   { return r.date(r.BackupDate) }
+
+func (r *Record) date(t uint32) time.Time {
+	if r.rawDates {
+		return HFSTime(t)
+	}
+	return BSDTime(t)
+}
 
 const (
 	folderRecordSize = 88

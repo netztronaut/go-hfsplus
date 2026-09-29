@@ -72,6 +72,7 @@ func (v *volume) lookup(ctx context.Context, parent uint32, name []uint16) (*Rec
 	}
 	var buf [255]uint16
 	_, stored, _ := catalogKey(key, &buf)
+	r.rawDates = v.opts.RawDates
 	r.ParentID = parent
 	r.Name = nameFromHFS(stored)
 	return r, nil
@@ -213,6 +214,7 @@ func (it *dirIter) next(ctx context.Context) (*Record, error) {
 		if !ok {
 			continue // the folder's thread record
 		}
+		r.rawDates = it.v.opts.RawDates
 		r.ParentID = p
 		r.Name = nameFromHFS(name)
 		return r, nil

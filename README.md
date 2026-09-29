@@ -50,6 +50,12 @@ directories, which, with the journal files, are hidden from listings as macOS hi
 (`Options.ShowPrivate` shows them). `fs.FileInfo.Sys()` returns the `*hfsplus.Record`: CNID, BSD
 owner, mode and flags, Finder information, type and creator, the dates.
 
+Dates are presented as `stat(2)` presents them: one before 1970, including the 0 some files on a
+10.4 install carry, is 1970-01-01, as the kernel's `to_bsd_time` clamps it. `Options.RawDates`
+presents them as stored instead, a 0 as 1904-01-01; the `Record` fields always hold the stored
+values. `Record.BSD.Flags()` is the
+stored word; `stat(2)` adds `UF_HIDDEN` for the Finder's invisible bit.
+
 `ListXattr` and `GetXattr` present extended attributes as macOS's `listxattr(2)` does:
 `com.apple.FinderInfo` and `com.apple.ResourceFork` are synthesised, `com.apple.decmpfs` of a
 compressed file and the protected `com.apple.system.` attributes are hidden. `Attributes` lists
@@ -109,18 +115,31 @@ uncompressed behind their marker bytes) are written through the kernel by `testd
 and read back by macOS for the golden listing, so every type is checked against the kernel.
 
 Optional tests read real disks when they are there: set `HFSPLUS_PPC_IMAGE` to a raw image of an
-installed 10.4 PowerPC disk, `HFSPLUS_INTEL_IMAGE` to a raw Intel GPT disk with a JHFS+ install,
+installed 10.4 PowerPC disk, `HFSPLUS_PPC_IMAGES` to a list of raw images of installed PowerPC
+disks of any release (`testdata/utm2raw.sh` converts a UTM virtual machine's disk with
+`qemu-img`), which are read entirely, `HFSPLUS_INTEL_IMAGE` to a raw Intel GPT disk with a JHFS+ install,
 and `HFSPLUS_BIG_IMAGE` to the 64 GiB image `testdata/mkbig.sh` makes. `HFSPLUS_MEDIA` takes
-`IMAGE=MOUNTPOINT` pairs and compares the reader with macOS on media it has attached: on the
+`IMAGE=MOUNTPOINT` pairs and compares the reader with macOS on media it has attached: names, modes, sizes, modification
+times, link targets and contents up to 1 MiB. On the
 Mac OS X 10.5.8 install DVD (APM, 512-byte blocks, a trailing `Apple_Free` cut short by the image)
 25,250 of 25,251 entries agreed, the exception a file rewritten in the image after macOS had
 attached it; on the Mojave installer (APM with 2048-byte blocks) and its BaseSystem (GPT, read
 from `/dev/rdisk`) every entry agreed, 50,073 of them, 37,362 compared by contents, with the
-blessed folder and `boot.efi` resolved.
+blessed folder and `boot.efi` resolved (those three runs compared names, types, sizes, link
+targets and contents, before modes and times were added).
 
-Not yet checked against a real disk: an installed 10.4 PowerPC system (what each Finder
-information word holds there should be confirmed before detection relies on it), and an Intel
-system disk this project installed onto JHFS+.
+Installed PowerPC systems, 10.0.3, 10.1.5, 10.2.8, 10.3.8, 10.4.11 and 10.5.8, each on a 64 GiB
+APM disk from a UTM virtual machine, were read entirely and compared with macOS attaching the same
+image: every entry, 1,162,424 of them, agreed in name, mode, size, BSD flags, all four dates, link
+target, contents of every file (22 GiB), resource fork and extended attribute, except the few
+entries macOS would not let an unprivileged reader open (`.Spotlight-V100`, `.Trashes`, `sudo`).
+10.0 to 10.2 are HFS+ in an HFS wrapper, 10.3 onwards journaled; 10.5 holds 94,711 hard links. On
+all six the volume header's Finder information holds the blessed `System/Library/CoreServices`
+in words 0 and 5 and 0 in words 2 and 3; word 1 is 0 but on 10.5, which blesses
+`System/Library/CoreServices/boot.efi` there even on a PowerPC. The only difference the comparison found was the dates
+before 1970 described above.
+
+Not yet checked against a real disk: an Intel system disk this project installed onto JHFS+.
 
 ## Licence
 

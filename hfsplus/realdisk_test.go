@@ -94,6 +94,106 @@ func TestPowerPCDisk(t *testing.T) {
 	checkInstalled(t, v, "10.4")
 }
 
+// TestPowerPCReleases reads installed PowerPC disks of any release (HFSPLUS_PPC_IMAGES, a list of
+// raw images; testdata/utm2raw.sh makes them from UTM virtual machines) and everything on them:
+// every entry, the whole of every file and resource fork, every link target and extended
+// attribute.
+func TestPowerPCReleases(t *testing.T) {
+	env := os.Getenv("HFSPLUS_PPC_IMAGES")
+	if env == "" {
+		t.Skip("HFSPLUS_PPC_IMAGES is not set")
+	}
+	for _, image := range filepath.SplitList(env) {
+		t.Run(filepath.Base(image), func(t *testing.T) {
+			v, scheme := openRawDisk(t, image)
+			if scheme != "apm" {
+				t.Errorf("a PowerPC disk with a %s", scheme)
+			}
+			checkInstalled(t, v, "10.")
+			if w := v.Wrapper(); w != nil {
+				t.Logf("HFS wrapper: %d bytes at %d", w.Length, w.Offset)
+			}
+			walkAll(t, v)
+		})
+	}
+}
+
+// walkAll reads everything on v and checks the entries it reaches do not exceed the volume
+// header's counts, which also count what is hidden.
+func walkAll(t *testing.T, v *Volume) {
+	t.Helper()
+	var dirs, files, links, other, rsrc, xattrs int64
+	var size int64
+	err := fs.WalkDir(v, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			return nil
+		}
+		fi, err := v.Lstat(p)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			return nil
+		}
+		names, err := v.ListXattr(p)
+		if err != nil {
+			t.Errorf("%s: listxattr: %v", p, err)
+		}
+		for _, x := range names {
+			xattrs++
+			_, err := v.GetXattr(p, x)
+			if err != nil && !(x == XattrResourceFork && errors.Is(err, ErrUnsupported)) {
+				t.Errorf("%s: getxattr %s: %v", p, x, err)
+			}
+		}
+		switch r := fi.Sys().(*Record); {
+		case fi.IsDir():
+			dirs++
+		case fi.Mode()&fs.ModeSymlink != 0:
+			links++
+			if _, err := v.ReadLink(p); err != nil {
+				t.Errorf("%s: %v", p, err)
+			}
+			if _, err := v.Stat(p); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, ErrLinkLoop) {
+				t.Errorf("%s: stat through the link: %v", p, err)
+			}
+		case fi.Mode().IsRegular():
+			files++
+			n, err := readAll(v.Open(p))
+			if err != nil || n != fi.Size() {
+				t.Errorf("%s: read %d of %d bytes: %v", p, n, fi.Size(), err)
+			}
+			size += n
+			if r.ResourceFork.LogicalSize > 0 {
+				rsrc++
+				n, err := readAll(v.OpenResourceFork(p))
+				if err != nil || uint64(n) != r.ResourceFork.LogicalSize {
+					t.Errorf("%s: read %d of %d bytes of the resource fork: %v", p, n, r.ResourceFork.LogicalSize, err)
+				}
+			}
+		default:
+			other++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+	h := v.Header()
+	if uint64(files+links+other) > uint64(h.FileCount) || uint64(dirs-1) > uint64(h.FolderCount) {
+		t.Errorf("walked %d files and %d folders, the header counts %d and %d", files+links+other, dirs-1, h.FileCount, h.FolderCount)
+	}
+	t.Logf("%d folders, %d files (%d MiB, %d resource forks), %d symlinks, %d other, %d xattrs; the header counts %d files, %d folders",
+		dirs, files, size>>20, rsrc, links, other, xattrs, h.FileCount, h.FolderCount)
+}
+
+func readAll[F fs.File](f F, err error) (int64, error) {
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	return io.Copy(io.Discard, f)
+}
+
 // TestIntelDisk reads an Intel GPT disk with a JHFS+ install (HFSPLUS_INTEL_IMAGE) and every
 // compressed file in /System/Library/CoreServices and /usr/bin.
 func TestIntelDisk(t *testing.T) {
@@ -144,7 +244,8 @@ func readCompressed(t *testing.T, v *Volume, dirs ...string) map[uint32]int {
 
 // TestMountedMedia compares the reader with macOS on real media that is attached: each element of
 // HFSPLUS_MEDIA is IMAGE=MOUNTPOINT, a raw image and where macOS has it attached read-only. Names,
-// types, sizes and link targets must agree everywhere, contents for files up to 1 MiB.
+// modes, sizes, modification times and link targets must agree everywhere, contents for files up
+// to 1 MiB.
 func TestMountedMedia(t *testing.T) {
 	env := os.Getenv("HFSPLUS_MEDIA")
 	if env == "" {
@@ -179,9 +280,12 @@ func TestMountedMedia(t *testing.T) {
 					t.Errorf("%s: %v", p, err)
 					return nil
 				}
-				if hi.Mode().Type() != vi.Mode().Type() {
-					t.Errorf("%s: type %v, macOS %v", p, vi.Mode().Type(), hi.Mode().Type())
+				if hi.Mode() != vi.Mode() {
+					t.Errorf("%s: mode %v, macOS %v", p, vi.Mode(), hi.Mode())
 					return nil
+				}
+				if !hi.ModTime().Equal(vi.ModTime()) {
+					t.Errorf("%s: modified %v, macOS %v", p, vi.ModTime(), hi.ModTime())
 				}
 				switch {
 				case hi.Mode()&fs.ModeSymlink != 0:

@@ -59,6 +59,10 @@ type Options struct {
 	// ".HFS+ Private Directory Data\r", and the journal files ".journal" and
 	// ".journal_info_block".
 	ShowPrivate bool
+	// RawDates presents dates as they are stored, converted by HFSTime: a date of 0 is
+	// 1904-01-01. By default a date before 1970 is 1970-01-01, as macOS's stat(2) presents it
+	// (BSDTime).
+	RawDates bool
 }
 
 // Volume is an open HFS+ or HFSX volume. It is safe for concurrent use.
