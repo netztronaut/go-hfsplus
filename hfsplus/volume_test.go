@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestInstalledAndErased(t *testing.T) {
@@ -72,6 +73,73 @@ func TestHeader(t *testing.T) {
 	}
 	if j := v.Journal(); j.Journaled || !j.CleanlyUnmounted {
 		t.Errorf("journal of a non-journaled image: %+v", j)
+	}
+}
+
+// TestBSDTime checks dates are clamped as the kernel's to_bsd_time clamps them, unless
+// Options.RawDates: a PowerPC 10.4 install has files whose dates are 0, which stat(2) reports as
+// 1970.
+func TestBSDTime(t *testing.T) {
+	for _, c := range []struct {
+		hfs  uint32
+		want int64
+	}{
+		{0, 0},
+		{1, 0},
+		{2082844800, 0},
+		{2082844801, 1},
+		{0xFFFFFFFF, 0xFFFFFFFF - 2082844800},
+	} {
+		if got := BSDTime(c.hfs); !got.Equal(time.Unix(c.want, 0)) {
+			t.Errorf("BSDTime(%d) = %v, want %v", c.hfs, got, time.Unix(c.want, 0).UTC())
+		}
+	}
+	if got := HFSTime(0); got.Year() != 1904 {
+		t.Errorf("HFSTime(0) = %v, want 1904", got)
+	}
+
+	// Records a volume reads carry its Options.RawDates, whichever way they are reached.
+	for _, raw := range []bool{false, true} {
+		v := openImage(t, "jhfsplus-gpt", Options{RawDates: raw})
+		recs := map[string]*Record{}
+		r, err := v.Record("fragmented.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		recs["Record"] = r
+		es, err := v.ReadDir(".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi, err := es[0].Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		recs["ReadDir"] = fi.Sys().(*Record)
+		fi, err = v.Stat(".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		recs["root"] = fi.Sys().(*Record)
+		want, year := time.Unix(0, 0), 1970
+		if raw {
+			want, year = HFSTime(0), 1904
+		}
+		for how, r := range recs {
+			if r.Modified().Year() < 2000 {
+				t.Errorf("RawDates %v, %s: a recent file dated %v", raw, how, r.Modified())
+			}
+			r.CreateDate, r.ContentModDate, r.AttributeModDate, r.AccessDate, r.BackupDate = 0, 0, 0, 0, 0
+			for _, d := range []time.Time{r.Created(), r.Modified(), r.Changed(), r.Accessed(), r.Backup()} {
+				if !d.Equal(want) {
+					t.Errorf("RawDates %v, %s: a date of 0 is %v, want %d", raw, how, d, year)
+				}
+			}
+		}
+	}
+	r := &Record{}
+	if !r.Modified().Equal(time.Unix(0, 0)) {
+		t.Errorf("a Record of its own dated 0: %v, want 1970", r.Modified())
 	}
 }
 
