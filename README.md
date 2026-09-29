@@ -1,0 +1,122 @@
+# go-hfsplus-reader
+
+Read-only Apple Partition Map and HFS+/HFSX readers in pure Go, for inspecting the disk of a
+PowerPC Mac OS X install, or of a pre-APFS Intel one, from the host.
+
+- `apm` reads an Apple Partition Map: the Driver Descriptor Record, every partition entry, each
+  partition as an `*io.SectionReader`.
+- `hfsplus` opens an HFS+ or HFSX volume, including one embedded in an HFS wrapper, as an
+  `io/fs.FS` (`fs.StatFS`, `fs.ReadDirFS`, `fs.ReadFileFS`, `fs.ReadLinkFS`), and exposes the volume
+  header, the blessed folders, the journal, extended attributes and resource forks.
+- `lzvn` and `lzfse` decode the compression `decmpfs` uses; `hfsplus` reads compressed files
+  transparently.
+- `diskfs/` is a separate module adapting both to go-diskfs's `partition.Table` and
+  `filesystem.FileSystem`, so the readers themselves depend on nothing but the standard library.
+
+Nothing here writes. There is no write method, not even one that fails; the go-diskfs adapter's
+write methods, which its interfaces require, return `filesystem.ErrReadonlyFilesystem`. A journal
+with unreplayed transactions is replayed into an in-memory overlay that every read goes through,
+never back to the disk.
+
+```go
+m, err := apm.Read(disk, size)            // apm.ErrNoMap for a disk without one
+p := m.Find(apm.TypeHFS)
+v, err := hfsplus.Open(p.Section(), p.Length, hfsplus.Options{}) // replays a dirty journal
+b, ok, err := v.Blessed()                 // ok false: not blessed, an ordinary answer
+j := v.Journal()                          // journaled, cleanly unmounted, pending, replayed
+plist, err := fs.ReadFile(v, "System/Library/CoreServices/SystemVersion.plist")
+```
+
+## Paths and names
+
+Paths are the POSIX paths the macOS VFS presents. Names are stored in UTF-16 in Apple's
+decomposed form; a lookup converts the Go string the way the kernel does, so a precomposed `é`
+finds a stored decomposed one, and a case-insensitive volume finds `README` as `readme`. The
+decomposition and case-folding tables are Apple's (Unicode 3.2 with Apple's exclusions, and
+TN1150's `FastUnicodeCompare` folding), generated from the Unicode data and verified code point by
+code point against the macOS kernel (`internal/gen/unicode`). A `/` in a stored name is presented
+as `:`, and back. Directory listings return names as stored, decomposed, as macOS does.
+
+Symbolic links resolve within the volume: an absolute target starts at the volume root, so
+`/etc/hosts` reads `private/etc/hosts`; `..` at the root stays there; at most 32 links are followed,
+and a loop is `ErrLinkLoop`. File and directory hard links resolve to their targets in the private
+directories, which, with the journal files, are hidden from listings as macOS hides them
+(`Options.ShowPrivate` shows them). `fs.FileInfo.Sys()` returns the `*hfsplus.Record`: CNID, BSD
+owner, mode and flags, Finder information, type and creator, the dates.
+
+`ListXattr` and `GetXattr` present extended attributes as macOS's `listxattr(2)` does:
+`com.apple.FinderInfo` and `com.apple.ResourceFork` are synthesised, `com.apple.decmpfs` of a
+compressed file and the protected `com.apple.system.` attributes are hidden. `Attributes` lists
+what the attributes B-tree holds.
+
+## Robustness
+
+The input is untrusted: a disk a guest may have left half-written, or may be writing while it is
+read. Every offset and length is checked against the partition before it is read; B-tree depth is
+bounded by TN1150's maximum of 16, a leaf chain that visits a node twice is corruption, extent
+chains, link hops and journal scans are bounded. Errors are typed and `errors.Is`-able:
+`ErrNotHFSPlus`, `ErrCorrupt` (a `*CorruptError` naming the structure, node and offset),
+`fs.ErrNotExist`, `ErrUnsupported`, `ErrJournalNotReplayed`, `ErrLinkLoop`. `Volume.WithContext`
+makes a walk or a large read stop between nodes and extents when its context is done. There is no
+logging and no mutable global state.
+
+## Memory
+
+The reader holds what a request needs: the B-tree nodes on the path it is searching, a node cache
+capped by `Options.CacheSize` (default 4 MiB), a bit per catalog node while walking a leaf chain,
+one 64 KiB chunk of a compressed file, and the journal overlay's index, about 50 bytes per
+journaled block, whose contents stay on disk. File contents stream through `io.Reader`.
+`fs.ReadDir` of a directory holds its entries, about 300 bytes each.
+
+Measured (`TestMemoryBigVolume`, on the sparse 64 GiB image `testdata/mkbig.sh` makes, read from
+the file): stat-ing all 101,144 entries of the volume and reading every directory holds a peak of
+4.2 MiB of heap above the baseline with the default 4 MiB cache. The test's stated bound is the
+cache size plus 8 MiB; `TestMemoryFixture` checks the same bound with a 64 KiB cache on every run.
+
+## Tests
+
+`testdata/mkfixtures.sh` makes the checked-in images on macOS with `hdiutil`: HFS+, journaled
+HFS+, case-sensitive HFSX and journaled HFSX, each in an APM (`-layout SPUD`) and a GPT, with
+nested directories, a file fragmented past the eight extents of its catalog record, file and
+directory hard links, symbolic links including a loop, inline and fork extended attributes, Finder
+information and resource forks, files compressed by `ditto --hfsCompression`, and names with
+precomposed and decomposed characters, Hangul, `:` and case variants; erased volumes; and a
+journaled volume copied while mounted, whose journal holds transactions nobody replayed. Each has
+a golden listing macOS produced from the attached image (`testdata/listing.py`), which the
+reader's listing must equal; the dirty image's is of a copy macOS replayed. The HFS wrapper and the
+case-folding HFSX catalog are synthesised in the tests from those images, and labelled so.
+
+Fuzz targets cover the partition map, the volume header and MDB, B-tree nodes, the journal header
+and block list, the `decmpfs` header and chunk tables, name conversion, and both decompressors; CI
+runs each for ten minutes.
+
+Journal replay was measured against the real thing before it was written: the header checksum
+covers 44 bytes, a block list header's 32, each block's checksum its whole block, and block
+numbers count `jhdr_size` units of the partition. The dirty image holds transactions whose blocks'
+home locations are stale (macOS writes them home before a copy can see the journal, so
+`testdata/revert.py` restores their earlier contents from the image before the changes); its
+golden listing is macOS's own replay of that image, and the test checks the replay changes blocks,
+matches the golden listing, and that the on-disk state lacks what only the journal holds.
+
+The decmpfs layouts macOS does not write with `ditto` (types 1, 3, 4, 11, 12, and chunks stored
+uncompressed behind their marker bytes) are written through the kernel by `testdata/compress.py`
+and read back by macOS for the golden listing, so every type is checked against the kernel.
+
+Optional tests read real disks when they are there: set `HFSPLUS_PPC_IMAGE` to a raw image of an
+installed 10.4 PowerPC disk, `HFSPLUS_INTEL_IMAGE` to a raw Intel GPT disk with a JHFS+ install,
+and `HFSPLUS_BIG_IMAGE` to the 64 GiB image `testdata/mkbig.sh` makes. `HFSPLUS_MEDIA` takes
+`IMAGE=MOUNTPOINT` pairs and compares the reader with macOS on media it has attached: on the
+Mac OS X 10.5.8 install DVD (APM, 512-byte blocks, a trailing `Apple_Free` cut short by the image)
+25,250 of 25,251 entries agreed, the exception a file rewritten in the image after macOS had
+attached it; on the Mojave installer (APM with 2048-byte blocks) and its BaseSystem (GPT, read
+from `/dev/rdisk`) every entry agreed, 50,073 of them, 37,362 compared by contents, with the
+blessed folder and `boot.efi` resolved.
+
+Not yet checked against a real disk: an installed 10.4 PowerPC system (what each Finder
+information word holds there should be confirmed before detection relies on it), and an Intel
+system disk this project installed onto JHFS+.
+
+## Licence
+
+MIT. The Unicode tables are derived from the Unicode Character Database; see
+`hfsplus/unicode_tables.go` for its notice.
