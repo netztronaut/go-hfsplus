@@ -11,8 +11,8 @@ import (
 
 	"github.com/diskfs/go-diskfs/filesystem"
 
-	"github.com/netztronaut/go-hfsplus-reader/apm"
-	"github.com/netztronaut/go-hfsplus-reader/hfsplus"
+	"netztronaut.de/go-hfsplus/apm"
+	"netztronaut.de/go-hfsplus/hfsplus"
 )
 
 func TestAdapter(t *testing.T) {

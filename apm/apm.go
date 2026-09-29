@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/netztronaut/go-hfsplus-reader/internal/macroman"
+	"netztronaut.de/go-hfsplus/internal/macroman"
 )
 
 // Signatures.

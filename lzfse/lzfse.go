@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/netztronaut/go-hfsplus-reader/lzvn"
+	"netztronaut.de/go-hfsplus/lzvn"
 )
 
 // ErrCorrupt is returned (possibly wrapped) for malformed input.

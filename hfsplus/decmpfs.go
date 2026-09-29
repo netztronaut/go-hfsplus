@@ -9,8 +9,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/netztronaut/go-hfsplus-reader/lzfse"
-	"github.com/netztronaut/go-hfsplus-reader/lzvn"
+	"netztronaut.de/go-hfsplus/lzfse"
+	"netztronaut.de/go-hfsplus/lzvn"
 )
 
 // decmpfs, the transparent compression of Mac OS X 10.6 and later: a file flagged UF_COMPRESSED

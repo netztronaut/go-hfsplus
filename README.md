@@ -1,4 +1,8 @@
-# go-hfsplus-reader
+# go-hfsplus
+
+```sh
+go get netztronaut.de/go-hfsplus
+```
 
 Read-only Apple Partition Map and HFS+/HFSX readers in pure Go, for inspecting the disk of a
 PowerPC Mac OS X install, or of a pre-APFS Intel one, from the host.

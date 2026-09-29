@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/netztronaut/go-hfsplus-reader/apm"
+	"netztronaut.de/go-hfsplus/apm"
 )
 
 // Real disks are too large to check in. These tests read them when an environment variable points

@@ -17,7 +17,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/netztronaut/go-hfsplus-reader/apm"
+	"netztronaut.de/go-hfsplus/apm"
 )
 
 // The images in ../testdata/images are made by ../testdata/mkfixtures.sh on macOS; each has a

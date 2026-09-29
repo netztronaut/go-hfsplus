@@ -19,8 +19,8 @@ import (
 	"github.com/diskfs/go-diskfs/partition"
 	"github.com/diskfs/go-diskfs/partition/part"
 
-	"github.com/netztronaut/go-hfsplus-reader/apm"
-	"github.com/netztronaut/go-hfsplus-reader/hfsplus"
+	"netztronaut.de/go-hfsplus/apm"
+	"netztronaut.de/go-hfsplus/hfsplus"
 )
 
 // TypeHFSPlus is the filesystem.Type the adapter reports; go-diskfs has no constant for HFS+.
