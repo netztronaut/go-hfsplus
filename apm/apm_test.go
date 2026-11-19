@@ -138,6 +138,98 @@ func TestOpticalBlockSizes(t *testing.T) {
 	}
 }
 
+// TestTwoMaps reads a disc that carries a map at 512-byte strides and one at 2048-byte strides,
+// laid out as the Mac OS X 10.2 install CD (6C115) has them, scaled to 1 MiB: the 10-entry 512
+// map's entries 4 and 8, at 2048 and 4096, are Apple_Void and double as the 9-entry 2048 map's
+// first two. Read once refused it with `entry 3 ("Apple"): map block count 9, entry 1 says 10`.
+func TestTwoMaps(t *testing.T) {
+	const size = 1 << 20
+	disk := make([]byte, size)
+	copy(disk, "ER")
+	binary.BigEndian.PutUint16(disk[2:], 2048)
+	binary.BigEndian.PutUint32(disk[4:], size/2048)
+	type e struct {
+		start, n  uint32
+		name, typ string
+	}
+	write := func(stride int64, first int, count uint32, es []e) {
+		for i, x := range es {
+			entry(disk[int64(first+i)*stride:], count, x.start, x.n, x.name, x.typ)
+		}
+	}
+	// The 2048 map, in 2048-byte blocks, from its third entry on.
+	write(2048, 3, 9, []e{
+		{1, 15, "Apple", TypePartitionMap},
+		{16, 14, "Macintosh", TypeDriver43},
+		{30, 35, "Macintosh", TypeDriver43CD},
+		{65, 14, "Macintosh", TypeDriverATAPI},
+		{79, 35, "Macintosh", TypeDriverATAPI},
+		{114, 128, "Patch Partition", TypePatches},
+		{242, 233, "Mac_OS_X", TypeHFS},
+	})
+	// The 512 map, in 512-byte blocks.
+	write(512, 1, 10, []e{
+		{1, 63, "Apple", TypePartitionMap},
+		{64, 56, "Macintosh", TypeDriver43},
+		{120, 140, "Macintosh", TypeDriver43CD},
+		{0, 0, "", TypeVoid},
+		{260, 56, "Macintosh", TypeDriverATAPI},
+		{316, 140, "Macintosh", TypeDriverATAPI},
+		{456, 512, "Patch Partition", TypePatches},
+		{0, 0, "", TypeVoid},
+		{968, 932, "Mac_OS_X", TypeHFS},
+		{1900, 148, "", TypeFree},
+	})
+
+	m, err := Read(bytes.NewReader(disk), size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.EntrySize != 512 || m.Unit != 512 || len(m.Partitions) != 10 {
+		t.Fatalf("entry size %d unit %d, %d entries", m.EntrySize, m.Unit, len(m.Partitions))
+	}
+	if p := m.Find(TypeHFS); p == nil || p.Index != 9 || p.Start != 968*512 || p.Length != 932*512 {
+		t.Errorf("Apple_HFS %+v", p)
+	}
+
+	// When neither map is self-consistent the error is the DDR stride's.
+	binary.BigEndian.PutUint32(disk[512*5+4:], 7)
+	var ee *EntryError
+	if _, err := Read(bytes.NewReader(disk), size); !errors.As(err, &ee) || ee.Index != 3 || ee.Name != "Apple" {
+		t.Errorf("both maps broken: %v", err)
+	}
+}
+
+// TestRealMedia reads the maps of real disks and disc images (APM_IMAGES, a list of paths), such
+// as the Mac OS X 10.2 install CD.
+func TestRealMedia(t *testing.T) {
+	env := os.Getenv("APM_IMAGES")
+	if env == "" {
+		t.Skip("APM_IMAGES is not set")
+	}
+	for _, image := range filepath.SplitList(env) {
+		t.Run(filepath.Base(image), func(t *testing.T) {
+			f, err := os.Open(image)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			st, err := f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := Read(f, st.Size())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("DDR block size %d, entry size %d, unit %d", m.BlockSize, m.EntrySize, m.Unit)
+			for _, p := range m.Partitions {
+				t.Logf("%d %q %q at %d, %d bytes", p.Index, p.Name, p.Type, p.Start, p.Length)
+			}
+		})
+	}
+}
+
 func TestInvalidEntries(t *testing.T) {
 	const size = 1 << 20
 	check := func(name string, d []byte, want error, index int) {
