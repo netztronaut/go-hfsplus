@@ -204,6 +204,7 @@ var fixtureNames = []string{
 	"hfsplus-apm", "hfsplus-gpt", "jhfsplus-apm", "jhfsplus-gpt",
 	"hfsx-apm", "hfsx-gpt", "jhfsx-apm", "jhfsx-gpt",
 	"erased-jhfsplus-apm", "erased-jhfsplus-gpt",
+	"installcd-apm",
 }
 
 func TestGoldenListings(t *testing.T) {

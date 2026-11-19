@@ -54,6 +54,42 @@ done
 image "erased-jhfsplus-apm" "Journaled HFS+" SPUD 0 0
 image "erased-jhfsplus-gpt" "Journaled HFS+" GPTSPUD 0 0
 
+# A disc laid out as the Mac OS X 10.2 install CD is, with its two partition maps (installcd.py),
+# around a small volume holding what detection reads there: a blessed System Folder, no blessed
+# boot file, and SystemVersion.plist. The golden listing is of the disc itself, attached, so macOS
+# picks the partition too.
+name=installcd-apm
+if [ -z "$only" ] || wanted "$name" $only; then
+rm -f "$work/$name-vol.dmg"
+hdiutil create -quiet -size 2m -fs "HFS+" -volname Mac_OS_X -layout NONE -o "$work/$name-vol.dmg"
+attach "$work/$name-vol.dmg"
+mkdir -p "$work/m/System/Library/CoreServices"
+cat >"$work/m/System/Library/CoreServices/SystemVersion.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ProductBuildVersion</key>
+	<string>6C115</string>
+	<key>ProductCopyright</key>
+	<string>Apple Computer, Inc. 1983-2002</string>
+	<key>ProductName</key>
+	<string>Mac OS X</string>
+	<key>ProductVersion</key>
+	<string>10.2</string>
+</dict>
+</plist>
+EOF
+bless --folder "$work/m/System/Library/CoreServices"
+detach
+python3 "$here/installcd.py" "$work/$name-vol.dmg" "$work/$name.dmg"
+attach -readonly "$work/$name.dmg"
+python3 "$here/listing.py" "$work/m" >"$out/$name.golden"
+bless --info "$work/m" 2>&1 | sed "s#/.*/m/#/#; s#/.*/m\$#/#" >"$out/$name.bless" || true
+detach
+gzip -9 -n -c "$work/$name.dmg" >"$out/$name.img.gz"
+fi
+
 # A journaled volume with transactions nobody replayed, as a killed guest leaves it. The image is
 # populated and cleanly detached, attached again and changed, and copied while still attached;
 # revert.py then restores the pre-change contents of the blocks the journal holds, because by the

@@ -93,7 +93,10 @@ nested directories, a file fragmented past the eight extents of its catalog reco
 directory hard links, symbolic links including a loop, inline and fork extended attributes, Finder
 information and resource forks, files compressed by `ditto --hfsCompression`, and names with
 precomposed and decomposed characters, Hangul, `:` and case variants; erased volumes; and a
-journaled volume copied while mounted, whose journal holds transactions nobody replayed. Each has
+journaled volume copied while mounted, whose journal holds transactions nobody replayed; and a disc
+laid out as the Mac OS X 10.2 install CD is, with its two partition maps (`testdata/installcd.py`)
+around a volume blessed as 10.2 blesses it, which `TestInstallCD` reads from the map to
+`SystemVersion.plist`. Each has
 a golden listing macOS produced from the attached image (`testdata/listing.py`), which the
 reader's listing must equal; the dirty image's is of a copy macOS replayed. The HFS wrapper and the
 case-folding HFSX catalog are synthesised in the tests from those images, and labelled so.

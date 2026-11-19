@@ -1,0 +1,5 @@
+.	d	755	501	20	0	2	0	1795103581	-	com.apple.provenance=b1eba9731b740644
+System	d	755	501	20	0	18	0	1795103581	-	com.apple.provenance=b1eba9731b740644
+System/Library	d	755	501	20	0	19	0	1795103581	-	com.apple.provenance=b1eba9731b740644
+System/Library/CoreServices	d	755	501	20	0	20	0	1795103581	-	com.apple.provenance=b1eba9731b740644
+System/Library/CoreServices/SystemVersion.plist	f	644	501	20	1	21	432	1795103581	8be2e85db8d71642e9da7e9bb4e1ab572c37794fad1f5966005bbfe0c7b2d560	com.apple.provenance=b1eba9731b740644
