@@ -1,5 +1,4 @@
-# CI on git.stei.gr. Forgejo reads .forgejo/workflows instead of .github/workflows, which stays for
-# GitHub: its runner labels (ubuntu-24.04-arm, macos-latest) do not exist here.
+# CI on git.stei.gr, on its runners: ubuntu-latest and the macos-x86_64 Tahoe guest.
 #
 #   test   Linux (ubuntu-latest): gofmt, vet, the tests with and without the race detector, the
 #          diskfs module, and cross-builds.
