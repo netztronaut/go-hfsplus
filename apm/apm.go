@@ -219,8 +219,10 @@ func Read(r io.ReaderAt, size int64) (*Map, error) {
 
 	// Apple's optical media can carry two maps, one at 512-byte strides and one at the DDR's
 	// 2048, whose entries interleave: the Mac OS X 10.2 install CD has a 10-entry map at 512 and a
-	// 9-entry one at 2048, the first shadowing the second's entries at 2048 and 4096. Each stride
-	// is read as a map of its own and the first self-consistent one is used, the DDR's first.
+	// 9-entry one at 2048, and the 512 map's entries at 2048 and 4096, Apple_Void, double as the
+	// first two of the 2048 map, so neither map's counts agree when walked at the other's stride.
+	// Each stride is read as a map of its own and the first self-consistent one is used, the
+	// DDR's first.
 	var firstErr error
 	for _, stride := range strides(m) {
 		if 2*stride > size {

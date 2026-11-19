@@ -118,7 +118,11 @@ Optional tests read real disks when they are there: set `HFSPLUS_PPC_IMAGE` to a
 installed 10.4 PowerPC disk, `HFSPLUS_PPC_IMAGES` to a list of raw images of installed PowerPC
 disks of any release (`testdata/utm2raw.sh` converts a UTM virtual machine's disk with
 `qemu-img`), which are read entirely, `HFSPLUS_INTEL_IMAGE` to a raw Intel GPT disk with a JHFS+ install,
-and `HFSPLUS_BIG_IMAGE` to the 64 GiB image `testdata/mkbig.sh` makes. `HFSPLUS_MEDIA` takes
+`HFSPLUS_BIG_IMAGE` to the 64 GiB image `testdata/mkbig.sh` makes, and `APM_IMAGES` to a list of
+disks and disc images whose partition maps `apm` reads. The Mac OS X 10.2 install CD (6C115)
+carries two maps, 10 entries at 512-byte strides and 9 at 2048 sharing two `Apple_Void` slots;
+`apm` reads the 512 one, and the HFS+ volume in its HFS wrapper reads entirely, blessed
+`System/Library/CoreServices`. `HFSPLUS_MEDIA` takes
 `IMAGE=MOUNTPOINT` pairs and compares the reader with macOS on media it has attached: names, modes, sizes, modification
 times, link targets and contents up to 1 MiB. On the
 Mac OS X 10.5.8 install DVD (APM, 512-byte blocks, a trailing `Apple_Free` cut short by the image)

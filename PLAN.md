@@ -63,8 +63,9 @@ for robustness; **may** is welcome and not required.
 4. **Must** handle a device block size other than 512 in the DDR (2048 on optical media), with the
    entry stride and the unit of `pmPyPartStart` determined from the data, not assumed; which of the
    two a real Apple disc uses is settled against a real image, not a document. (Settled: the
-   Mac OS X 10.2 install CD, 6C115, has both, a map at 512-byte strides shadowing one at 2048;
-   each stride is read as a map of its own and the first self-consistent one is used.)
+   Mac OS X 10.2 install CD, 6C115, has both, 10 entries at 512-byte strides and 9 at 2048,
+   sharing two `Apple_Void` slots; each stride is read as a map of its own and the first
+   self-consistent one is used.)
 5. **Must** recognise at least `Apple_partition_map`, `Apple_HFS`, `Apple_HFSX`, `Apple_Free`,
    `Apple_Driver*`, `Apple_Patches`, `Apple_Bootstrap`, `Apple_UFS`, and pass any other type string
    through unchanged.

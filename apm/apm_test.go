@@ -138,36 +138,48 @@ func TestOpticalBlockSizes(t *testing.T) {
 	}
 }
 
-// TestTwoMaps reads a disc that carries a map at 512-byte strides and one at 2048-byte strides, as
-// the Mac OS X 10.2 install CD (6C115) does: the 10-entry 512 map shadows the 9-entry 2048 map's
-// entries at 2048 and 4096, so walking 2048-byte strides meets entries of both. Read once refused
-// it with `entry 3 ("Apple"): map block count 9, entry 1 says 10`.
+// TestTwoMaps reads a disc that carries a map at 512-byte strides and one at 2048-byte strides,
+// laid out as the Mac OS X 10.2 install CD (6C115) has them, scaled to 1 MiB: the 10-entry 512
+// map's entries 4 and 8, at 2048 and 4096, are Apple_Void and double as the 9-entry 2048 map's
+// first two. Read once refused it with `entry 3 ("Apple"): map block count 9, entry 1 says 10`.
 func TestTwoMaps(t *testing.T) {
 	const size = 1 << 20
 	disk := make([]byte, size)
 	copy(disk, "ER")
 	binary.BigEndian.PutUint16(disk[2:], 2048)
 	binary.BigEndian.PutUint32(disk[4:], size/2048)
-	// The 2048 map, in 2048-byte blocks: itself, eight partitions of 8 blocks from block 16.
-	for i := uint32(1); i <= 9; i++ {
-		name, typ, start, n := "part", TypeHFS, 16+8*(i-2), uint32(8)
-		if i == 1 {
-			name, typ, start, n = "Apple", TypePartitionMap, 1, 15
-		}
-		if i == 3 {
-			name = "Apple"
-		}
-		entry(disk[int64(i)*2048:], 9, start, n, name, typ)
+	type e struct {
+		start, n  uint32
+		name, typ string
 	}
-	// The 512 map, in 512-byte blocks, written over it: itself, then the same space as nine
-	// partitions of 32 blocks from block 64.
-	for i := uint32(1); i <= 10; i++ {
-		name, typ, start, n := "part", TypeHFS, 64+32*(i-2), uint32(32)
-		if i == 1 {
-			name, typ, start, n = "Apple", TypePartitionMap, 1, 63
+	write := func(stride int64, first int, count uint32, es []e) {
+		for i, x := range es {
+			entry(disk[int64(first+i)*stride:], count, x.start, x.n, x.name, x.typ)
 		}
-		entry(disk[int64(i)*512:], 10, start, n, name, typ)
 	}
+	// The 2048 map, in 2048-byte blocks, from its third entry on.
+	write(2048, 3, 9, []e{
+		{1, 15, "Apple", TypePartitionMap},
+		{16, 14, "Macintosh", TypeDriver43},
+		{30, 35, "Macintosh", TypeDriver43CD},
+		{65, 14, "Macintosh", TypeDriverATAPI},
+		{79, 35, "Macintosh", TypeDriverATAPI},
+		{114, 128, "Patch Partition", TypePatches},
+		{242, 233, "Mac_OS_X", TypeHFS},
+	})
+	// The 512 map, in 512-byte blocks.
+	write(512, 1, 10, []e{
+		{1, 63, "Apple", TypePartitionMap},
+		{64, 56, "Macintosh", TypeDriver43},
+		{120, 140, "Macintosh", TypeDriver43CD},
+		{0, 0, "", TypeVoid},
+		{260, 56, "Macintosh", TypeDriverATAPI},
+		{316, 140, "Macintosh", TypeDriverATAPI},
+		{456, 512, "Patch Partition", TypePatches},
+		{0, 0, "", TypeVoid},
+		{968, 932, "Mac_OS_X", TypeHFS},
+		{1900, 148, "", TypeFree},
+	})
 
 	m, err := Read(bytes.NewReader(disk), size)
 	if err != nil {
@@ -176,8 +188,8 @@ func TestTwoMaps(t *testing.T) {
 	if m.EntrySize != 512 || m.Unit != 512 || len(m.Partitions) != 10 {
 		t.Fatalf("entry size %d unit %d, %d entries", m.EntrySize, m.Unit, len(m.Partitions))
 	}
-	if p := m.Partitions[1]; p.Start != 64*512 || p.Length != 32*512 {
-		t.Errorf("entry 2 at %d, %d bytes", p.Start, p.Length)
+	if p := m.Find(TypeHFS); p == nil || p.Index != 9 || p.Start != 968*512 || p.Length != 932*512 {
+		t.Errorf("Apple_HFS %+v", p)
 	}
 
 	// When neither map is self-consistent the error is the DDR stride's.
