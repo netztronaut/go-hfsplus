@@ -217,10 +217,55 @@ func Read(r io.ReaderAt, size int64) (*Map, error) {
 		}
 	}
 
-	stride, err := findStride(r, size, m)
-	if err != nil {
-		return nil, err
+	// Apple's optical media can carry two maps, one at 512-byte strides and one at the DDR's
+	// 2048, whose entries interleave: the Mac OS X 10.2 install CD has a 10-entry map at 512 and a
+	// 9-entry one at 2048, the first shadowing the second's entries at 2048 and 4096. Each stride
+	// is read as a map of its own and the first self-consistent one is used, the DDR's first.
+	var firstErr error
+	for _, stride := range strides(m) {
+		if 2*stride > size {
+			continue
+		}
+		var sig [2]byte
+		if err := readFull(r, sig[:], stride); err != nil {
+			return nil, err
+		}
+		var err error
+		switch be16(sig[:]) {
+		case entrySignature:
+			var found *Map
+			if found, err = readMap(r, size, m, stride); err == nil {
+				return found, nil
+			}
+		case oldSignature:
+			err = ErrUnsupported
+		default:
+			continue
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
 	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, ErrNoMap
+}
+
+// strides lists the entry strides to try: the DDR's block size, when it is a multiple of 512
+// larger than 512, then 512.
+func strides(m *Map) []int64 {
+	if m.HasDDR && m.BlockSize > SectorSize && m.BlockSize%SectorSize == 0 {
+		return []int64{int64(m.BlockSize), SectorSize}
+	}
+	return []int64{SectorSize}
+}
+
+// readMap reads and validates the map whose entries are stride bytes apart, on a copy of ddr,
+// which holds what the Driver Descriptor Record said.
+func readMap(r io.ReaderAt, size int64, ddr *Map, stride int64) (*Map, error) {
+	m := *ddr
+	m.Partitions = nil
 	m.EntrySize = stride
 
 	var first [SectorSize]byte
@@ -263,7 +308,7 @@ func Read(r io.ReaderAt, size int64) (*Map, error) {
 		m.Partitions = append(m.Partitions, p)
 	}
 
-	m.Unit = findUnit(m, size)
+	m.Unit = findUnit(&m, size)
 	for i := range m.Partitions {
 		p := &m.Partitions[i]
 		p.Start = int64(p.StartBlock) * m.Unit
@@ -272,34 +317,7 @@ func Read(r io.ReaderAt, size int64) (*Map, error) {
 	if err := m.validate(size); err != nil {
 		return nil, err
 	}
-	return m, nil
-}
-
-// findStride finds the distance between entries: the DDR's block size when an entry is there,
-// otherwise 512. Apple's optical media put the map at 2048-byte strides on some discs and at
-// 512-byte strides on others, so the data decides.
-func findStride(r io.ReaderAt, size int64, m *Map) (int64, error) {
-	var candidates []int64
-	if m.HasDDR && m.BlockSize > SectorSize && m.BlockSize%SectorSize == 0 {
-		candidates = append(candidates, int64(m.BlockSize))
-	}
-	candidates = append(candidates, SectorSize)
-	var sig [2]byte
-	for _, c := range candidates {
-		if 2*c > size {
-			continue
-		}
-		if err := readFull(r, sig[:], c); err != nil {
-			return 0, err
-		}
-		switch be16(sig[:]) {
-		case entrySignature:
-			return c, nil
-		case oldSignature:
-			return 0, ErrUnsupported
-		}
-	}
-	return 0, ErrNoMap
+	return &m, nil
 }
 
 // findUnit decides what pmPyPartStart counts. The map describes itself: its own entry starts at
